@@ -1,0 +1,195 @@
+#!/bin/bash
+
+
+read -p "Enter the url for the season being played: " seasonurl
+
+echo "$seasonurl" > links5.txt
+
+# Run the Python scraper
+python3 ./dartscraper.py
+
+if [ ! -f links.txt ]; then
+    echo "No links.txt found. Python script may have failed."
+    exit 1
+fi
+
+# Process the links using tr
+l=0
+while IFS= read -r link; do
+    # Example transformation: Replace underscores with hyphens
+    new_link=$(echo "$link" | tr '_' '-')
+    ((l++))
+    echo "Modified link: $new_link"
+done < links.txt
+echo "$l Pages Loaded."
+# Read links from links.txt into an array
+mapfile -t websites < links.txt
+
+count=${#websites[@]}
+modified_links=()
+
+
+#Prompt user for a season
+read -p "Enter the season being played: " season
+
+#Prompt user for a year
+read -p "Enter the year being played: " year
+
+
+for website in "${websites[@]}"; do
+	new_link=$(echo "$website" | sed 's/league-matches/games/' | sed 's/REG//')
+	echo "$new_link" >> links2.txt
+done
+
+python3 ./dartscraper2.py
+r=0
+while IFS= read -r link; do
+    # Example transformation: Replace underscores with hyphens
+    new_link=$(echo "$link" | tr '_' '-')
+    echo "Modified link: $new_link"
+    ((r++))
+    modified_links+=("$new_link")
+done < links3.txt
+echo ""
+echo "$r Webpages Loaded."
+
+# Use wget to download the webpage content
+x=0
+for website in "${modified_links[@]}"; do
+  if [ -f "darts_${season}_${year}_${x}.txt" ]; then
+    rm "darts_${season}_${year}_${x}.txt"
+  fi
+  echo "$website to 'darts_${season}_${year}_${x}.txt'"
+  wget -q -O "darts_${season}_${year}_${x}.txt" "$website"
+  echo "darts_${season}_${https://tv.dartconnect.com/league/GTCDC/matches/14337year}_${x}.txt" >> links4.txt
+  
+  ((x++))
+done
+
+#cut website info to the block we need
+for ((p=0; p<count; p++)); do
+    if [ -f "tempdartsfile$p.txt" ]; then
+        rm "tempdartsfile$p.txt"
+    fi
+    tr '\n' '~' < "darts_${season}_${year}_${p}.txt" | cut -d '~' -f44 > "tempdartsfile$p.txt"
+    echo "$((p+1)) / $count Websites Parsed for Data"
+done
+
+
+
+
+#display note
+echo "Downloading Data...."
+
+
+#grep for names and scores
+for ((q=0; q<count; q++)); do
+    if [ -f "tempdartsfile2_$q.txt" ]; then
+        rm "tempdartsfile2_$q.txt"
+    fi
+
+    grep -oE "[A-Z][a-z]+[ ]*[A-Z][a-z]+|turn_score&quot;:[0-9]*&quot;[A-Z]*[a-z]*[0-9]*[, ]*[0-9]*[A-Z]*[a-z]*[0-9]*[, ]*[0-9]*[A-Z]*[a-z]*[0-9]*|turn_score&quot;:[0-9]+" \
+    "tempdartsfile$q.txt" | cut -d ";" -f2,3 | cut -d ":" -f2 | \
+    grep -oE "[A-Z][a-z]+[ ]*[A-Z][a-z]+|[0-9]*[A-Z]*[a-z]*[0-9]*[, ]*[0-9]*[A-Z]*[a-z]*[0-9]*[, ]*[0-9]*[A-Z]*[a-z]*[0-9]*" | \
+    grep -v "quot" > "tempdartsfile2_$q.txt"
+	echo "$((q+1)) / $count Names and Scores collected"
+done
+
+echo " "
+echo " "
+
+#display note 2
+echo "Editing Files for Parsing Scores..."
+echo ""
+echo ""
+
+#Retrieve scores
+for ((k=0; k<count; k++)); do
+    if [ -f "tempdartsfile3_$k.txt" ]; then
+        rm "tempdartsfile3_$k.txt"
+    fi
+
+    tr '\n' ' ' < "tempdartsfile2_$k.txt" | \
+    grep -oE "[A-Z][a-z]+[ ]*[A-Z][a-z]+ [0-9]*[DTS]*[B]*[x]*[0-9]*[,]{1}[ ]*[0-9]*[DTS]*[B]*[x]*[0-9]*[,]{1}[ ]*[0-9]*[DTS]*[B]*[x]*[0-9]*|[A-Z][a-z]+[ ]*[A-Z][a-z]+ [0-9]*[DTS]*[B]*[x]*[0-9]*[,]{1}[ ]*[0-9]*[DTS]*[B]*[x]*[0-9]*|[A-Z][a-z]+[ ]*[A-Z][a-z]+ [0-9]*[DTS]*[B]*[x]*[0-9]*" >> "tempdartsfile3_$k.txt"
+done
+
+for ((x=0; x<count; x++)); do
+	tr '  ' ' ' < "tempdartsfile3_$x.txt" > tempdartsfile3_$k.txt
+	echo"((x+1)) / $count Edited for Parsing..."
+done
+
+
+#parsing high scores
+echo "parsing high scores..."
+echo ""
+echo ""
+if [ -f "${season}${year}highscores.csv" ]; then
+    rm ${season}${year}highscores.csv
+fi
+echo "Name,95-119,120-169,170-180" > "${season}${year}highscores.csv"
+declare -A count1 count2 count3
+
+for ((y=0; y<count; y++)); do
+    while IFS= read -r line; do
+        # Extract name and score properly
+        name=$(echo "$line" | awk '{$NF=""; print $0}' | xargs)
+        score=$(echo "$line" | awk '{print $NF}' | grep -oE '[0-9]+')
+	
+        # Skip lines with no valid scores
+        if [[ -z "$score" ]]; then
+            continue
+        fi
+
+        # Increment counts based on score range
+        if ((score >= 95 && score <= 119)); then
+            ((count1["$name"]++))
+        elif ((score >= 120 && score <= 169)); then
+            ((count2["$name"]++))
+        elif ((score >= 170 && score <= 180)); then
+            ((count3["$name"]++))
+        fi
+
+	echo "((y+1)) / $count Parsed..."
+    done < "tempdartsfile3_$y.txt"
+done
+
+# Output unique names with their score counts
+for player in "${!count1[@]}" "${!count2[@]}" "${!count3[@]}"; do
+    unique_players["$player"]=1
+done
+
+for player in "${!unique_players[@]}"; do
+    echo "$player,${count1[$player]:-0},${count2[$player]:-0},${count3[$player]:-0}" >> "${season}${year}highscores.csv"
+done
+
+for player in "${!count1[@]}"; do
+    echo "$player,${count1[$player]:-0},${count2[$player]:-0},${count3[$player]:-0}" >> "${season}${year}highscores.csv"
+done
+
+#show new csv
+cat "$season""$year"highscores.csv
+
+if [ ! -d "/mnt/c/darts" ]; then
+  mkdir -p /mnt/c/darts
+  echo "Directory /mnt/c/Darts created."
+else
+  echo "Directory /mnt/c/Darts already exists."
+fi
+
+#download new csv
+sudo scp "$season""$year"highscores.csv /mnt/c/Darts
+
+echo "Removing Extra Leftover Files..."
+rm links.txt
+rm links2.txt
+rm links3.txt
+rm links4.txt
+rm links5.txt
+rm tempdartsfile3_{0..$count}.txt
+rm tempdartsfile2_{0..$count}.txt
+rm tempdartsfile{0..$count}.txt
+rm darts_spring_2025_{0..$count}.txt
+
+echo "Completed, Thanks for Waiting!!"
+echo "CSV File TO C://Darts/"$season""$year"highschores.csv"
+echo "Services Proved by: Tyler J.W. Cole"
